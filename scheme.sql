@@ -77,6 +77,67 @@ CREATE TABLE BESTELLUNGEN
     FOREIGN KEY (TEILEID) REFERENCES TEILE(TEILEID),
     CONSTRAINT B_PK PRIMARY KEY (BESTELLUNGENID, TEILEID, KUNDENID)
   );
+  CREATE OR REPLACE TRIGGER ORDER_INSERT BEFORE
+  INSERT ON bestellungen FOR EACH ROW DECLARE incorrect_order EXCEPTION;
+  PRAGMA EXCEPTION_INIT (incorrect_order, -20002);
+  n_count NUMBER(1);
+  BEGIN
+    SELECT COUNT (*)
+    INTO n_count
+    FROM ABO971.BESTELLUNGEN
+    WHERE DATUM     = :NEW.DATUM
+    AND RICHTUNG    = 0;
+    IF (:NEW.RICHTUNG = 0 AND n_count=1) THEN
+      UPDATE ABO971.BESTELLUNGEN
+      SET TEILEID  = :NEW.TEILEID,
+        KUNDENID   = :NEW.TEILEID,
+        ANZAHL     =:NEW.ANZAHL,
+        PREIS      =:NEW.PREIS,
+        DATUM      =:NEW.DATUM,
+        RICHTUNG   = 1
+      WHERE DATUM  = :NEW.DATUM
+      AND RICHTUNG = 0;
+    ELSE
+      INSERT
+      INTO ABO971.BESTELLUNGEN
+        (
+          TEILEID,
+          KUNDENID,
+          ANZAHL,
+          PREIS,
+          DATUM,
+          RICHTUNG
+        )
+        VALUES
+        (
+          :NEW.TEILEID,
+          :NEW.KUNDENID,
+          :NEW.ANZAHL,
+          :NEW.PREIS,
+          :NEW.DATUM,
+          1
+        );
+    END IF;
+  EXCEPTION
+  WHEN incorrect_order THEN
+    raise_application_error (-20002, 'try again');
+  END;
+  /
+  create or replace TRIGGER PLZ_TRIGGER
+  --CREATE OR REPLACE TRIGGER rental_unavailable
+  BEFORE
+  INSERT ON kunden FOR EACH ROW DECLARE plz_not_found EXCEPTION;
+  PRAGMA EXCEPTION_INIT (plz_not_found, -20001);
+  n_count NUMBER (1);
+  BEGIN
+    SELECT COUNT (*) INTO n_count FROM GERKEN.PLZVERZEICHNIS WHERE PLZ = :NEW.PLZ;
+    IF n_count < 1 THEN
+      RAISE plz_not_found;
+    END IF;
+  EXCEPTION
+  WHEN plz_not_found THEN
+    raise_application_error (-20001, 'Ungueltige Postleitzahl');
+  END;
 INSERT
 INTO KUNDEN
   (
@@ -313,18 +374,4 @@ INTO ABO971.TEILE
     NULL,
     100,25000
   );
-CREATE OR REPLACE TRIGGER PLZ_TRIGGER
-  --CREATE OR REPLACE TRIGGER rental_unavailable
-  BEFORE
-  INSERT ON kunden FOR EACH ROW DECLARE plz_not_found EXCEPTION;
-  PRAGMA EXCEPTION_INIT (plz_not_found, -20001);
-  n_count NUMBER (1);
-  BEGIN
-    SELECT COUNT (*) INTO n_count FROM GERKEN.PLZVERZEICHNIS WHERE PLZ = :NEW.PLZ;
-    IF n_count < 1 THEN
-      RAISE plz_not_found;
-    END IF;
-  EXCEPTION
-  WHEN plz_not_found THEN
-    raise_application_error (-20001, 'Ungueltige Postleitzahl');
-  END; 
+  
